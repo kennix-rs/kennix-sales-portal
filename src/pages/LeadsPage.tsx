@@ -4,7 +4,7 @@ import { PriorityBadge, QueueBadge, StageBadge } from '../components/sales'
 import { Card, EmptyState, PageHeader } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../contexts/DataContext'
-import { isLandSourcingLead, isNewLead, nextScheduledVisit, STAGES } from '../lib/rules'
+import { isLandSourcingLead, isNewLead, isSalesRejected, nextScheduledVisit, STAGES } from '../lib/rules'
 import { canManage, cn, formatDate } from '../lib/utils'
 import type { SalesLead, SalesStage } from '../types'
 
@@ -14,6 +14,7 @@ const VIEWS = [
   { key: 'new', label: 'New leads', test: isNewLead },
   { key: 'land-sourcing', label: 'Land sourcing leads', test: isLandSourcingLead },
   { key: 'interested', label: 'Interested', test: (lead: SalesLead) => lead.stage === 'Interested' },
+  { key: 'rejected', label: 'Sent back to Telesales', test: isSalesRejected },
 ] as const
 
 export function LeadsPage() {
@@ -63,7 +64,7 @@ export function LeadsPage() {
             <td><Link to={`/leads/${lead.journeyId}`}>{lead.journeyId}</Link><span className="mt-0.5 block text-[10px] text-slate-500">{lead.reference}</span></td>
             <td><QueueBadge lead={lead}/></td>
             <td><StageBadge lead={lead}/></td>
-            <td>{visit ? <><span className="block font-semibold text-slate-800">{formatDate(visit.scheduledAt)}</span><span className="text-[10px] text-slate-500">{visit.kind}{visit.confirmedAt ? ' · confirmed' : ' · to reconfirm'}</span></> : <span className="text-slate-400">—</span>}</td>
+            <td>{lead.returnedToTelesales ? <span className="text-[11px] text-red-700">{lead.returnedToTelesales.attempts ? `${lead.returnedToTelesales.attempts} attempts unanswered` : 'Not interested before the meeting'}</span> : visit ? <><span className="block font-semibold text-slate-800">{formatDate(visit.scheduledAt)}</span><span className="text-[10px] text-slate-500">{visit.kind}{visit.confirmedAt ? ' · confirmed' : ' · to reconfirm'}</span></> : <span className="text-slate-400">—</span>}</td>
             <td>{ownerName(lead.ownerId)}</td>
             <td><PriorityBadge priority={lead.priority}/></td>
             <td><Link to={`/leads/${lead.journeyId}`} className="btn btn-ghost btn-icon" aria-label={`Open ${lead.customer.name}`}><ChevronRight size={16}/></Link></td>

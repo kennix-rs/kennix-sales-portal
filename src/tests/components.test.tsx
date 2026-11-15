@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import App from '../App'
@@ -45,8 +45,18 @@ describe('Sales portal', () => {
     renderAt('/leads/KX-2026-000257', 's-ishaan')
     expect(await screen.findByRole('heading', { name: 'Pooja Malhotra' })).toBeInTheDocument()
     expect(screen.getByText('Meeting details')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Start trip/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Start meeting/ })).toBeInTheDocument()
+    expect(screen.getByText('T · fixed by Telesales')).toBeInTheDocument()
     expect(screen.getByRole('radiogroup', { name: 'Property type' })).toBeInTheDocument()
+  })
+
+  it('shows stage alerts under the bell for a Team Lead, not for an executive', async () => {
+    renderAt('/home', 's-manish')
+    expect(await screen.findByRole('button', { name: /Stage alerts, \d+ unread/ })).toBeInTheDocument()
+    cleanup()
+    renderAt('/home', 's-ishaan')
+    await screen.findByText('Your sales day')
+    expect(screen.queryByRole('button', { name: /Stage alerts/ })).not.toBeInTheDocument()
   })
 
   it('keeps the Team page for Team Leads and Managers', async () => {

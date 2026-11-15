@@ -3,18 +3,60 @@
  * Every gate returns the list of what's missing, like the Telesales qualification gate.
  */
 import type {
-  CustomerDetails, InProcessReason, MeetingProfile, SalesLead, SalesStage, SalesState, SiteVisitReport, Task, User, Visit,
+  CallOutcome, CustomerDetails, InProcessReason, MeetingProfile, PackageType, SalesLead, SalesStage, SalesState, SiteVisitReport, StageAlert, Task, User, Visit,
 } from '../types'
 import { now, sameDay } from './utils'
 
+/** The pipeline-by-stage columns. "Sales Rejected" journeys have left Sales and are listed separately. */
 export const STAGES: SalesStage[] = [
   'In Process', 'Meeting Scheduled', 'Meeting Done', 'SV Scheduled', 'SV Done', 'Interested', 'Under Negotiation', 'Closed', 'Dead',
 ]
-export const IN_PROCESS_REASONS: InProcessReason[] = ['Switch Off', 'RNR', 'Call Back Later']
+/** Construction rate per sq ft for each package, as on the website and in the backend's `Package` table. */
+export const PACKAGE_RATES: Record<PackageType, number> = { Basic: 1800, Standard: 2000, Luxury: 2200, 'Ultra Luxury': 2500 }
 
-/** Closed and Dead journeys are read-only in Sales. */
+/** Indicative construction cost: built-up area × the package rate (null if the area isn't a number yet). */
+export function indicativeCost(approxBuiltArea: string, packageType: PackageType | '') {
+  const area = Number(approxBuiltArea.replace(/[^\d.]/g, ''))
+  return packageType && area > 0 ? Math.round(area * PACKAGE_RATES[packageType]) : null
+}
+
+export const IN_PROCESS_REASONS: InProcessReason[] = ['RNR', 'Plan Postponed', 'Call Back Later', 'Switch Off']
+
+export function isInProcessOutcome(outcome: CallOutcome): outcome is InProcessReason {
+  return (IN_PROCESS_REASONS as string[]).includes(outcome)
+}
+
+/** Closed, Dead and Sales Rejected journeys are read-only in Sales. */
 export function isReadOnly(lead: SalesLead) {
-  return lead.stage === 'Closed' || lead.stage === 'Dead'
+  return lead.stage === 'Closed' || lead.stage === 'Dead' || lead.stage === 'Sales Rejected'
+}
+
+/**
+ * Voice notes: after 5 In Process attempts (RNR, Plan Postponed, Call Back Later, Switch Off)
+ * within 3 days, the journey goes back to Telesales as "Sales rejected", with Sales' comment.
+ */
+export const RETURN_RULE = { attempts: 5, withinHours: 72 }
+
+export function recentInProcessAttempts(lead: Pick<SalesLead, 'calls'>, at = now()) {
+  const since = at.getTime() - RETURN_RULE.withinHours * 3600_000
+  return lead.calls.filter(call => isInProcessOutcome(call.outcome) && new Date(call.at).getTime() >= since).length
+}
+
+/**
+ * A customer dropped before any meeting or site visit has happened goes back to Telesales
+ * ("Sales rejected"); only a journey dropped after a meeting or site visit is Dead.
+ */
+export function visitHappened(lead: Pick<SalesLead, 'visits'>) {
+  return lead.visits.some(visit => visit.status === 'Completed')
+}
+
+/** Stages that alert Team Leads and Managers (voice notes: "auto pop-up to the admin"). */
+export const ALERT_STAGES: SalesStage[] = ['Meeting Done', 'SV Done', 'Interested', 'Under Negotiation', 'Closed']
+
+export function alertsFor(state: SalesState, user: User, users: User[]): StageAlert[] {
+  if (user.role === 'executive') return []
+  const owners = visibleOwnerIds(user, users)
+  return state.alerts.filter(alert => owners.has(alert.ownerId)).sort((a, b) => b.at.localeCompare(a.at))
 }
 
 export function customerMissing(customer: CustomerDetails) {
@@ -46,6 +88,7 @@ export function meetingFormMissing(lead: Pick<SalesLead, 'customer' | 'profile'>
   if (!p.paymentPlan) missing.push('Payment plan')
   if (!p.plotSize.trim()) missing.push('Plot size')
   if (!p.approxBuiltArea.trim()) missing.push('Approx. built area')
+  if (!p.packageType) missing.push('Type of package')
   if (!p.decisionMaker) missing.push('Decision maker')
   if (!p.nextAction) missing.push('Next action')
   return missing
@@ -107,6 +150,10 @@ export function isOverdueVisit(visit: Visit, at = now()) {
 
 export function isTodayVisit(visit: Visit, at = now()) {
   return visit.status !== 'Cancelled' && sameDay(new Date(visit.scheduledAt), at)
+}
+
+export function isSalesRejected(lead: SalesLead) {
+  return lead.stage === 'Sales Rejected'
 }
 
 export function isLandSourcingLead(lead: SalesLead) {

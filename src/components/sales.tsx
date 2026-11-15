@@ -42,7 +42,7 @@ export function Question({ label, required, children, hint }: { label: string; r
   </div>
 }
 
-const FLOW: SalesStage[] = STAGES.filter(stage => stage !== 'In Process' && stage !== 'Dead')
+const FLOW: SalesStage[] = STAGES.filter(stage => stage !== 'In Process' && stage !== 'Dead' && stage !== 'Sales Rejected')
 
 /** Where the journey is on the way to Closed. "In Process" shows the stage it will resume. */
 export function StageStrip({ lead }: { lead: SalesLead }) {
@@ -50,8 +50,9 @@ export function StageStrip({ lead }: { lead: SalesLead }) {
   const index = FLOW.indexOf(current)
   return <ol className="stage-strip" aria-label="Sales stages">
     {FLOW.map((stage, position) => {
-      const done = lead.stage !== 'Dead' && position < index
-      const isCurrent = lead.stage !== 'Dead' && position === index
+      const ended = lead.stage === 'Dead' || lead.stage === 'Sales Rejected'
+      const done = !ended && position < index
+      const isCurrent = !ended && position === index
       return <li key={stage} className={cn('stage-step', done && 'done', isCurrent && 'current')} aria-current={isCurrent ? 'step' : undefined}>
         {done && <Check size={12}/>}{stage}
       </li>

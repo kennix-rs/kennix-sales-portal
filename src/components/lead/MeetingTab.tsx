@@ -2,11 +2,11 @@ import { CalendarPlus, CheckCircle2, Save } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useData } from '../../contexts/DataContext'
-import { meetingFormMissing } from '../../lib/rules'
-import { fromLocalInput } from '../../lib/utils'
+import { indicativeCost, meetingFormMissing, PACKAGE_RATES } from '../../lib/rules'
+import { formatINR, fromLocalInput } from '../../lib/utils'
 import { isMeetingVisit, salesService } from '../../services/salesService'
 import type {
-  CustomerDetails, DecisionMaker, GroupKind, LandStatus, MeetingProfile, NextAction, PaymentPlan, RegistrationStatus, SalesLead,
+  CustomerDetails, DecisionMaker, GroupKind, LandStatus, MeetingProfile, NextAction, PackageType, PaymentPlan, RegistrationStatus, SalesLead,
   SalesPropertyType, YesNo,
 } from '../../types'
 import { ChoiceGroup, Missing, Question } from '../sales'
@@ -14,6 +14,7 @@ import { Button, Card, Field } from '../ui'
 import { VisitTracker } from './VisitTracker'
 
 const YES_NO = ['Yes', 'No'] as const
+const PACKAGES: readonly PackageType[] = ['Basic', 'Standard', 'Luxury', 'Ultra Luxury']
 
 /** Whiteboard "Meeting fixed lead flow": confirm the customer box, capture the requirement, pick the next action. */
 export function MeetingTab({ lead, readOnly }: { lead: SalesLead; readOnly: boolean }) {
@@ -35,12 +36,13 @@ export function MeetingTab({ lead, readOnly }: { lead: SalesLead; readOnly: bool
     await salesService.completeMeeting(lead.journeyId, user)
   }, 'Meeting marked done')
   const ownLand = profile.landStatus === 'Own Land'
+  const cost = indicativeCost(profile.approxBuiltArea, profile.packageType)
 
   return <div className="grid gap-5 xl:grid-cols-[.9fr_1.1fr]">
     <div className="space-y-4">
       <Card className="p-4">
         <h2 className="text-sm font-bold text-slate-900">Meetings</h2>
-        <p className="mt-1 text-xs text-slate-500">Reconfirm by logging a call. On the day, start the trip, record arrival and complete the visit; each step saves your location.</p>
+        <p className="mt-1 text-xs text-slate-500">Reconfirm by logging a call. On the day tap Start meeting, Arrived at client location and Meeting completed; each step saves your location for the travel allowance.</p>
         <div className="mt-4 space-y-3">{meetings.map(visit => <VisitTracker key={visit.id} lead={lead} visit={visit} readOnly={readOnly}/>)}</div>
       </Card>
       {!readOnly && ['Meeting Done', 'SV Done', 'Interested'].includes(lead.stage) && !lead.visits.some(visit => visit.status === 'Scheduled') && <Card className="p-4">
@@ -92,6 +94,10 @@ export function MeetingTab({ lead, readOnly }: { lead: SalesLead; readOnly: bool
             <Field label="Dimensions" required={ownLand}><input value={profile.dimensions} onChange={event => set('dimensions', event.target.value)} placeholder="e.g. 40 ft × 60 ft"/></Field>
             <Field label="Approx. built area" required><input value={profile.approxBuiltArea} onChange={event => set('approxBuiltArea', event.target.value)} placeholder="e.g. 3,200 sq ft"/></Field>
           </div>
+          <Question label="Type of package" required hint={cost ? `Indicative construction cost: ${formatINR(cost)} (${profile.approxBuiltArea} × ₹${PACKAGE_RATES[profile.packageType as PackageType].toLocaleString('en-IN')} per sq ft)` : 'Rates per sq ft from the website’s Packages page.'}>
+            <ChoiceGroup label="Type of package" name="packageType" options={PACKAGES} value={profile.packageType} onChange={value => set('packageType', value)}/>
+            <span className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">{PACKAGES.map(item => <span key={item}>{item}: ₹{PACKAGE_RATES[item].toLocaleString('en-IN')}/sq ft</span>)}</span>
+          </Question>
           <Question label="Payment plan" required><ChoiceGroup label="Payment plan" name="paymentPlan" options={['Self', 'Loan', '50:50'] as const} value={profile.paymentPlan} onChange={value => set('paymentPlan', value as PaymentPlan)}/></Question>
           <Question label="Decision maker" required><ChoiceGroup label="Decision maker" name="decisionMaker" options={['Self', 'Dependent'] as const} value={profile.decisionMaker} onChange={value => set('decisionMaker', value as DecisionMaker)}/></Question>
           <Question label="Next action" required><ChoiceGroup label="Next action" name="nextAction" options={['Site Visit', 'Follow-up Meeting', 'Follow-up Call', 'Quotation'] as const} value={profile.nextAction} onChange={value => set('nextAction', value as NextAction)}/></Question>

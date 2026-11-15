@@ -66,6 +66,7 @@ export function stageTone(stage: SalesStage) {
     'Under Negotiation': 'orange',
     Closed: 'green',
     Dead: 'slate',
+    'Sales Rejected': 'red',
   } as const)[stage]
 }
 

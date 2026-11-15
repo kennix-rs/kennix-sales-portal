@@ -9,8 +9,8 @@ import { CITY_POSITIONS, simulatedStamp } from '../lib/geo'
 import { allowanceFor } from '../lib/rules'
 import { teamReference } from '../lib/utils'
 import type {
-  Activity, CallLog, FeedbackComment, LandSourcingStatus, MeetingProfile, Priority, SalesLead, SalesPropertyType, SalesStage,
-  SalesState, SiteVisitReport, Task, TravelClaim, User, Visit,
+  Activity, CallLog, FeedbackComment, InProcessReason, LandSourcingStatus, MeetingProfile, Priority, SalesLead, SalesPropertyType,
+  SalesStage, SalesState, SiteVisitReport, StageAlert, Task, TravelClaim, User, Visit,
 } from '../types'
 
 export const PASSWORD = 'Preview@123'
@@ -54,8 +54,10 @@ interface Row {
   /** Furthest stage reached on the way to closing. */
   progress: Exclude<SalesStage, 'In Process' | 'Dead'>
   confirmed?: boolean
-  inProcess?: { reason: 'Switch Off' | 'RNR' | 'Call Back Later'; at: string; nextCallAt: string; notes: string }
+  inProcess?: { reason: InProcessReason; at: string; nextCallAt: string; notes: string; earlier?: { reason: InProcessReason; at: string; notes: string }[] }
   dead?: { at: string; reason: string }
+  /** Not interested before any meeting: sent back to Telesales ("Sales rejected"). */
+  rejected?: { at: string; reason: string }
   landSourcing?: LandSourcingStatus
   duplex?: boolean
   siteVisitAt?: string
@@ -98,8 +100,13 @@ const rows: Row[] = [
   { journeyId: 'KX-2026-000222', name: 'Mohit Grover', phone: '+91 9876500222', city: 'Kharar', pincode: '140301', locality: 'Landran Road', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: '₹1–1.5 Cr', size: '1,500–2,000 sq ft', timeline: '1–3 months', landStatus: 'Own Land', meetingAt: ist('2026-11-06', '12:00'), receivedAt: ist('2026-10-30', '16:00'), telesalesOwner: 'Arjun Nair', owner: 's-ishaan', priority: 'Medium', progress: 'SV Scheduled', siteVisitAt: ist('2026-11-17', '11:30') },
   { journeyId: 'KX-2026-000226', name: 'Prerna Dutta', phone: '+91 9876500226', city: 'Ludhiana', pincode: '141013', locality: 'South City', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: '₹1.5–2 Cr', size: '2,000–2,500 sq ft', timeline: '6+ months', landStatus: 'Own Land', meetingAt: ist('2026-11-10', '15:00'), receivedAt: ist('2026-11-02', '12:00'), telesalesOwner: 'Priya Singh', owner: 's-tanvi', priority: 'Low', progress: 'Meeting Done' },
   { journeyId: 'KX-2026-000229', name: 'Vivek Thakur', phone: '+91 9876500229', city: 'Panchkula', pincode: '134109', locality: 'Sector 26', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: 'Below ₹1 Cr', size: '1,000–1,500 sq ft', timeline: '6+ months', landStatus: 'Own Land', meetingAt: ist('2026-10-24', '11:00'), receivedAt: ist('2026-10-18', '14:00'), telesalesOwner: 'Arjun Nair', owner: 's-ishaan', priority: 'Low', progress: 'Meeting Done', dead: { at: ist('2026-10-30', '16:00'), reason: 'Budget too low for the plot size; customer will revisit next year.' } },
-  { journeyId: 'KX-2026-000233', name: 'Anita Rawat', phone: '+91 9876500233', city: 'Zirakpur', pincode: '140603', locality: 'Lohgarh', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: '₹1–1.5 Cr', size: '1,500–2,000 sq ft', timeline: '1–3 months', landStatus: 'Own Land', meetingAt: ist('2026-10-28', '12:00'), receivedAt: ist('2026-10-22', '11:30'), telesalesOwner: 'Priya Singh', owner: 's-tanvi', priority: 'Medium', progress: 'Meeting Scheduled', dead: { at: ist('2026-10-27', '18:00'), reason: 'Bought a ready-built house elsewhere before the meeting.' } },
-  { journeyId: 'KX-2026-000236', name: 'Sameer Khan', phone: '+91 9876500236', city: 'Mohali', pincode: '160059', locality: 'Phase 7', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: '₹2–3 Cr', size: '2,500–3,000 sq ft', timeline: '3–6 months', landStatus: 'Own Land', meetingAt: ist('2026-11-12', '11:00'), receivedAt: ist('2026-11-05', '17:30'), telesalesOwner: 'Priya Singh', owner: 's-ishaan', priority: 'Medium', progress: 'Meeting Scheduled', confirmed: true, inProcess: { reason: 'Switch Off', at: ist('2026-11-12', '10:20'), nextCallAt: ist('2026-11-15', '11:00'), notes: 'Phone switched off on the meeting day; meeting not held.' } },
+  { journeyId: 'KX-2026-000233', name: 'Anita Rawat', phone: '+91 9876500233', city: 'Zirakpur', pincode: '140603', locality: 'Lohgarh', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: '₹1–1.5 Cr', size: '1,500–2,000 sq ft', timeline: '1–3 months', landStatus: 'Own Land', meetingAt: ist('2026-10-28', '12:00'), receivedAt: ist('2026-10-22', '11:30'), telesalesOwner: 'Priya Singh', owner: 's-tanvi', priority: 'Medium', progress: 'Meeting Scheduled', rejected: { at: ist('2026-10-27', '18:00'), reason: 'Bought a ready-built house elsewhere before the meeting; not interested any more.' } },
+  { journeyId: 'KX-2026-000236', name: 'Sameer Khan', phone: '+91 9876500236', city: 'Mohali', pincode: '160059', locality: 'Phase 7', customerType: 'Individual', propertyType: 'Individual House (1 Floor / Villa)', budget: '₹2–3 Cr', size: '2,500–3,000 sq ft', timeline: '3–6 months', landStatus: 'Own Land', meetingAt: ist('2026-11-12', '11:00'), receivedAt: ist('2026-11-05', '17:30'), telesalesOwner: 'Priya Singh', owner: 's-ishaan', priority: 'Medium', progress: 'Meeting Scheduled', confirmed: true, inProcess: { reason: 'Plan Postponed', at: ist('2026-11-15', '11:00'), nextCallAt: ist('2026-11-16', '12:00'), notes: 'Says the plan is on hold till next month; will confirm a new meeting date.', earlier: [
+    { reason: 'Switch Off', at: ist('2026-11-12', '10:20'), notes: 'Phone switched off on the meeting day; meeting not held.' },
+    { reason: 'RNR', at: ist('2026-11-13', '12:00'), notes: 'Rang out; no response to reschedule the meeting.' },
+    { reason: 'Switch Off', at: ist('2026-11-14', '11:00'), notes: 'Phone switched off again.' },
+    { reason: 'RNR', at: ist('2026-11-14', '18:00'), notes: 'No response in the evening either.' },
+  ] } },
 ]
 
 const ARCHITECT = 'Ar. Nikhil Bose'
@@ -116,7 +123,7 @@ function completedTrip(visit: Visit, city: string): Visit {
   }
 }
 
-function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
+function buildLead(row: Row, tasks: Task[], claims: TravelClaim[], alerts: StageAlert[]): SalesLead {
   const reached = (stage: Row['progress']) => ORDER.indexOf(row.progress) >= ORDER.indexOf(stage)
   const ownLand = row.landStatus === 'Own Land'
   const isGroup = row.customerType === 'Group / Community'
@@ -130,7 +137,7 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
   ]
   const calls: CallLog[] = []
 
-  let meeting: Visit = { id: id('VIS'), kind: 'Sales Meeting', scheduledAt: row.meetingAt, place: `${row.locality}, ${row.city}`, status: 'Scheduled', ownerId: row.owner }
+  let meeting: Visit = { id: id('VIS'), kind: 'Sales Meeting', fixedBy: 'Telesales', scheduledAt: row.meetingAt, place: `${row.locality}, ${row.city}`, status: 'Scheduled', ownerId: row.owner }
   if (row.confirmed || reached('Meeting Done')) {
     const confirmedAt = shift(row.meetingAt, -22)
     meeting = { ...meeting, confirmedAt }
@@ -146,10 +153,11 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
     nextAction: reached('SV Scheduled') || !ownLand ? 'Site Visit' : 'Follow-up Call',
     plotSize: ownLand ? `${row.size.split('–')[0].replace('+', '')} sq ft` : row.size, dimensions: ownLand ? '40 ft × 60 ft' : '',
     approxBuiltArea: row.size, decisionMaker: isGroup ? 'Dependent' : 'Self',
+    packageType: row.budget.includes('4 Cr') ? 'Ultra Luxury' : row.budget.includes('3–4') ? 'Luxury' : row.budget.includes('Below') || row.budget.includes('1–1.5') ? 'Basic' : 'Standard',
   } : {
     customerType: isGroup ? 'Group of People' : 'Individual', groupKind: '', landStatus: row.landStatus,
     propertyType: row.propertyType === 'Individual House (1 Floor / Villa)' ? '' : salesType, plotRegistered: '', registrationStatus: '',
-    govtApproval: '', budget: row.budget, paymentPlan: '', nextAction: '', plotSize: '', dimensions: '', approxBuiltArea: '', decisionMaker: '',
+    govtApproval: '', budget: row.budget, paymentPlan: '', nextAction: '', plotSize: '', dimensions: '', approxBuiltArea: '', decisionMaker: '', packageType: '',
   }
   if (reached('Meeting Done')) {
     const done = visits[0].completed!.at
@@ -159,7 +167,7 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
 
   const siteVisit: SiteVisitReport = { actualSiteVisited: '', roadAccess: '', roadFacingWidth: '', roadWidth: '', photos: [], propertyDocuments: [], soilTest: '', borewell: '' }
   if (reached('SV Scheduled') && row.siteVisitAt) {
-    const sv: Visit = { id: id('VIS'), kind: 'Site Visit', scheduledAt: row.siteVisitAt, place: `${ownLand ? 'Customer plot' : 'Identified land'}, ${row.locality}, ${row.city}`, status: 'Scheduled', ownerId: row.owner, confirmedAt: shift(row.siteVisitAt, -20) }
+    const sv: Visit = { id: id('VIS'), kind: 'Site Visit', fixedBy: 'Sales', scheduledAt: row.siteVisitAt, place: `${ownLand ? 'Customer plot' : 'Identified land'}, ${row.locality}, ${row.city}`, status: 'Scheduled', ownerId: row.owner, confirmedAt: shift(row.siteVisitAt, -20) }
     visits.push(reached('SV Done') ? completedTrip(sv, row.city) : sv)
     activities.push({ id: id('ACT'), type: 'Site visit scheduled', description: `Site visit fixed for ${new Date(row.siteVisitAt).toLocaleDateString('en-IN')}.`, actor: owner, createdAt: shift(visits[0].completed?.at ?? row.meetingAt, 2) })
   }
@@ -178,17 +186,16 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
     architect: ARCHITECT,
     callAt: shift(row.siteVisitAt ?? row.meetingAt, reached('Under Negotiation') ? 96 : 24 * 21),
     ...(reached('Under Negotiation') && row.quotation ? {
-      estimateLow: Math.round(row.quotation * 0.8), estimateHigh: Math.round(row.quotation * 1.2),
-      estimateNotes: 'Rough estimate from the architect call (±20% of actual cost).',
-      quotation: { number: `QT-${row.journeyId.slice(-6)}`, amount: row.quotation, sharedAt: shift(row.siteVisitAt ?? row.meetingAt, 24 * 7) },
+      quotation: { number: `QT-${row.journeyId.slice(-6)}`, amount: row.quotation, fileName: `QT-${row.journeyId.slice(-6)}.pdf`, uploadedBy: ARCHITECT, uploadedAt: shift(row.siteVisitAt ?? row.meetingAt, 24 * 6) },
+      shared: { at: shift(row.siteVisitAt ?? row.meetingAt, 24 * 7), via: 'WhatsApp' as const, by: owner },
     } : {}),
   } : undefined
   if (architecture && !reached('Under Negotiation')) {
     tasks.push({ id: id('TSK'), journeyId: row.journeyId, type: 'Architect Call', title: `Call with ${ARCHITECT} and the customer to take requirements`, dueAt: architecture.callAt, status: 'Open', ownerId: row.owner })
   }
   const closing = row.progress === 'Closed' && row.quotation ? {
-    tokenAmount: Math.round(row.quotation * 0.02 / 1000) * 1000, paidAt: shift(architecture!.quotation!.sharedAt, 24 * 6),
-    paymentReference: `UTR${row.journeyId.slice(-6)}0042`, handoverCallAt: shift(architecture!.quotation!.sharedAt, 24 * 8),
+    tokenAmount: row.quotation >= 3_00_00_000 ? 3_00_000 : 2_00_000, paidAt: shift(architecture!.shared!.at, 24 * 6),
+    paymentReference: `UTR${row.journeyId.slice(-6)}0042`, handoverCallAt: shift(architecture!.shared!.at, 24 * 8),
   } : undefined
   if (closing) {
     tasks.push({ id: id('TSK'), journeyId: row.journeyId, type: 'Handover Call', title: `Handover call: customer, ${ARCHITECT} and Sales`, dueAt: closing.handoverCallAt, status: 'Done', ownerId: row.owner })
@@ -199,6 +206,10 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
   let inProcessReason: SalesLead['inProcessReason']
   let resumeStage: SalesStage | undefined
   if (row.inProcess) {
+    for (const attempt of row.inProcess.earlier ?? []) {
+      calls.push({ id: id('CALL'), at: attempt.at, outcome: attempt.reason, notes: attempt.notes, employee: owner })
+      feedback.push({ id: id('FB'), text: attempt.notes, author: owner, team: 'Sales', createdAt: attempt.at, outcome: attempt.reason })
+    }
     calls.push({ id: id('CALL'), at: row.inProcess.at, outcome: row.inProcess.reason, notes: row.inProcess.notes, employee: owner })
     feedback.push({ id: id('FB'), text: row.inProcess.notes, author: owner, team: 'Sales', createdAt: row.inProcess.at, outcome: row.inProcess.reason })
     tasks.push({ id: id('TSK'), journeyId: row.journeyId, type: 'Follow-up Call', title: `Call back (${row.inProcess.reason})`, dueAt: row.inProcess.nextCallAt, status: 'Open', ownerId: row.owner })
@@ -214,6 +225,15 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
     calls.push({ id: id('CALL'), at: row.dead.at, outcome: 'Not Interested', notes: row.dead.reason, employee: owner })
     feedback.push({ id: id('FB'), text: row.dead.reason, author: owner, team: 'Sales', createdAt: row.dead.at, outcome: 'Not Interested' })
     activities.push({ id: id('ACT'), type: 'Marked dead', description: row.dead.reason, actor: owner, createdAt: row.dead.at })
+  }
+  let returnedToTelesales: SalesLead['returnedToTelesales']
+  if (row.rejected) {
+    stage = 'Sales Rejected'
+    returnedToTelesales = { at: row.rejected.at, reason: row.rejected.reason, attempts: 0, by: owner }
+    visits.forEach((visit, index) => { if (visit.status === 'Scheduled') visits[index] = { ...visit, status: 'Cancelled' } })
+    calls.push({ id: id('CALL'), at: row.rejected.at, outcome: 'Not Interested', notes: row.rejected.reason, employee: owner })
+    feedback.push({ id: id('FB'), text: row.rejected.reason, author: owner, team: 'Sales', createdAt: row.rejected.at, outcome: 'Not Interested' })
+    activities.push({ id: id('ACT'), type: 'Sent back to Telesales', description: row.rejected.reason, actor: owner, createdAt: row.rejected.at })
   }
 
   // Tasks for live journeys.
@@ -237,6 +257,18 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
       status: recent ? 'Pending Approval' : 'Approved', ...(recent ? {} : { decidedBy: 'Manish Kohli', decidedAt: shift(visit.completed!.at, 30) }),
     })
   }
+
+  // Alerts for the stages Team Leads and Managers follow; ones older than 3 days are already read.
+  const alert = (stageReached: SalesStage, at?: string) => {
+    if (!at) return
+    const read = new Date(at) < new Date('2026-11-13T00:00:00+05:30')
+    alerts.push({ id: id('ALR'), journeyId: row.journeyId, customer: row.name, stage: stageReached, actor: owner, ownerId: row.owner, at, readBy: read ? ['s-manish', 's-rakesh'] : [] })
+  }
+  if (reached('Meeting Done')) alert('Meeting Done', visits[0].completed?.at)
+  if (reached('SV Done')) alert('SV Done', visits[1]?.completed?.at)
+  if (reached('Interested') && architecture) alert('Interested', shift(architecture.callAt, -24))
+  if (architecture?.shared) alert('Under Negotiation', architecture.shared.at)
+  if (closing) alert('Closed', closing.paidAt)
 
   return {
     journeyId: row.journeyId,
@@ -262,6 +294,7 @@ function buildLead(row: Row, tasks: Task[], claims: TravelClaim[]): SalesLead {
     ...(architecture ? { architecture } : {}),
     ...(closing ? { closing } : {}),
     ...(deadReason ? { deadReason } : {}),
+    ...(returnedToTelesales ? { returnedToTelesales } : {}),
     activities: activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
   }
 }
@@ -270,8 +303,9 @@ export function createInitialState(): SalesState {
   counter = 0
   const tasks: Task[] = []
   const claims: TravelClaim[] = []
-  const leads = rows.map(row => buildLead(row, tasks, claims)).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
-  return { leads, tasks, claims, assignmentCursor: 0 }
+  const alerts: StageAlert[] = []
+  const leads = rows.map(row => buildLead(row, tasks, claims, alerts)).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
+  return { alerts: alerts.filter(item => new Date(item.at) <= new Date('2026-11-16T10:00:00+05:30')), leads, tasks, claims, assignmentCursor: 0 }
 }
 
 /** The 13 journeys the Telesales demo sends to Sales. */
