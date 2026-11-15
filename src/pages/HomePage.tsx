@@ -20,7 +20,8 @@ export function HomePage() {
   const newLeads = leads.filter(isNewLead)
   const interested = leads.filter(lead => lead.stage === 'Interested')
   const landSourcing = leads.filter(isLandSourcingLead)
-  const live = leads.filter(lead => lead.stage !== 'Dead' && lead.stage !== 'Closed')
+  const live = leads.filter(lead => !['Dead', 'Closed', 'Sales Rejected'].includes(lead.stage))
+  const sentBack = leads.filter(lead => lead.stage === 'Sales Rejected').length
   const max = Math.max(1, ...STAGES.map(stage => leads.filter(lead => lead.stage === stage).length))
   const ownerName = (id: string) => users.find(item => item.id === id)?.name ?? id
   const greeting = now().getHours() < 12 ? 'Good morning' : now().getHours() < 17 ? 'Good afternoon' : 'Good evening'
@@ -59,6 +60,7 @@ export function HomePage() {
               <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${stage === 'Dead' ? 'bg-slate-300' : stage === 'In Process' ? 'bg-amber-400' : 'bg-teal-500'}`} style={{ width: `${(count / max) * 100}%` }}/></div>
             </Link>
           })}
+          <Link to="/leads?view=rejected" className="mt-1 flex justify-between rounded-md border-t border-slate-100 px-1 pt-2.5 text-xs hover:bg-slate-50"><span className="font-semibold text-red-700">Sent back to Telesales</span><span className="font-bold text-slate-900">{sentBack}</span></Link>
         </div>
       </Card>
     </div>

@@ -1,5 +1,5 @@
 import * as Tabs from '@radix-ui/react-tabs'
-import { ArrowLeft, Lock, MessageSquarePlus, Phone, Skull, UserRoundCog } from 'lucide-react'
+import { ArrowLeft, Lock, MessageSquarePlus, Phone, Skull, Undo2, UserRoundCog } from 'lucide-react'
 import { useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
 import { DealTab } from '../components/lead/DealTab'
@@ -10,7 +10,7 @@ import { Fact, PriorityBadge, QueueBadge, StageBadge, StageStrip } from '../comp
 import { Badge, Button, Card, Field, Modal } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../contexts/DataContext'
-import { isReadOnly, nextScheduledVisit, visibleOwnerIds } from '../lib/rules'
+import { isReadOnly, nextScheduledVisit, recentInProcessAttempts, RETURN_RULE, visibleOwnerIds, visitHappened } from '../lib/rules'
 import { canManage, formatDate } from '../lib/utils'
 import { salesService } from '../services/salesService'
 import type { SalesLead } from '../types'
@@ -18,7 +18,7 @@ import type { SalesLead } from '../types'
 function defaultTab(lead: SalesLead) {
   if (['SV Scheduled', 'SV Done'].includes(lead.stage)) return 'site-visit'
   if (['Interested', 'Under Negotiation', 'Closed'].includes(lead.stage)) return 'deal'
-  if (lead.stage === 'Dead') return 'overview'
+  if (lead.stage === 'Dead' || lead.stage === 'Sales Rejected') return 'overview'
   return 'meeting'
 }
 
@@ -38,6 +38,8 @@ export function LeadDetailPage() {
   const ownerName = (id: string) => users.find(item => item.id === id)?.name ?? id
   const visit = nextScheduledVisit(lead)
   const team = users.filter(item => visibleOwnerIds(user, users).has(item.id) && item.id !== lead.ownerId)
+  // Voice notes: before any meeting or site visit a dropped customer goes back to Telesales; Dead is only after one.
+  const canDie = visitHappened(lead)
 
   return <>
     <Link to="/leads" className="mb-4 inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800"><ArrowLeft size={14}/> Leads</Link>
@@ -52,7 +54,7 @@ export function LeadDetailPage() {
           <div className="flex flex-wrap gap-2">
             {!readOnly && <Button onClick={() => setCallOpen(true)}><Phone size={15}/> Log call</Button>}
             {!readOnly && canManage(user.role) && <Button variant="secondary" onClick={() => { setOwner(team[0]?.id ?? ''); setReassignOpen(true) }}><UserRoundCog size={15}/> Reassign</Button>}
-            {!readOnly && <Button variant="secondary" onClick={() => setDeadOpen(true)}><Skull size={15}/> Mark dead</Button>}
+            {!readOnly && <Button variant="secondary" onClick={() => setDeadOpen(true)}>{canDie ? <><Skull size={15}/> Mark dead</> : <><Undo2 size={15}/> Return to Telesales</>}</Button>}
           </div>
         </div>
         <dl className="mt-5 grid gap-4 border-t border-white/10 pt-4 text-xs sm:grid-cols-2 lg:grid-cols-4 [&_dd]:text-white [&_dt]:text-slate-400">
@@ -63,8 +65,9 @@ export function LeadDetailPage() {
         </dl>
       </div>
       <div className="p-4"><StageStrip lead={lead}/>
-        {lead.stage === 'In Process' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900"><strong>In Process · {lead.inProcessReason}.</strong> Returns to {lead.resumeStage} when the customer is reached; log the next call.</p>}
-        {readOnly && <p className="mt-3 flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-600"><Lock size={14}/>{lead.stage === 'Closed' ? 'Closed and handed over to Architecture.' : `Dead: ${lead.deadReason}`} This journey is read-only.</p>}
+        {lead.stage === 'In Process' && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900"><strong>In Process · {lead.inProcessReason}.</strong> Returns to {lead.resumeStage} when the customer is reached. Attempts in the last {RETURN_RULE.withinHours / 24} days: {recentInProcessAttempts(lead)} of {RETURN_RULE.attempts}; at {RETURN_RULE.attempts} the journey goes back to Telesales.</p>}
+        {lead.stage === 'Sales Rejected' && lead.returnedToTelesales && <p className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-800"><strong>Sent back to Telesales (Sales rejected)</strong> on {formatDate(lead.returnedToTelesales.at)} by {lead.returnedToTelesales.by}{lead.returnedToTelesales.attempts ? ` after ${lead.returnedToTelesales.attempts} attempts without reaching the customer` : ''}: “{lead.returnedToTelesales.reason.replace(/[.\s]+$/, '')}”. Read-only in Sales.</p>}
+        {readOnly && lead.stage !== 'Sales Rejected' && <p className="mt-3 flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-600"><Lock size={14}/>{lead.stage === 'Closed' ? 'Closed and handed over to Architecture.' : `Dead: ${lead.deadReason}`} This journey is read-only.</p>}
       </div>
     </Card>
 
@@ -108,9 +111,13 @@ export function LeadDetailPage() {
     </Tabs.Root>
 
     {callOpen && <LogCallDialog lead={lead} open={callOpen} onOpenChange={setCallOpen}/>}
-    <Modal open={deadOpen} onOpenChange={setDeadOpen} title="Mark journey dead" description="Dead journeys become read-only in Sales."
-      footer={<><Button variant="secondary" onClick={() => setDeadOpen(false)}>Cancel</Button><Button variant="danger" onClick={async () => { if (await run(() => salesService.markDead(lead.journeyId, text, user), 'Journey marked dead')) { setDeadOpen(false); setText('') } }}>Mark dead</Button></>}>
-      <Field label="Reason" required><textarea value={text} onChange={event => setText(event.target.value)} placeholder="Why is the customer not going ahead?"/></Field>
+    <Modal open={deadOpen} onOpenChange={setDeadOpen} title={canDie ? 'Mark journey dead' : 'Return to Telesales'}
+      description={canDie ? 'Dead journeys become read-only in Sales.' : 'No meeting or site visit has happened, so the journey goes back to Telesales as “Sales rejected”. Telesales sees your comment.'}
+      footer={<><Button variant="secondary" onClick={() => setDeadOpen(false)}>Cancel</Button><Button variant="danger" onClick={async () => {
+        const ok = canDie ? await run(() => salesService.markDead(lead.journeyId, text, user), 'Journey marked dead') : await run(() => salesService.returnToTelesales(lead.journeyId, text, user), 'Sent back to Telesales')
+        if (ok) { setDeadOpen(false); setText('') }
+      }}>{canDie ? 'Mark dead' : 'Return to Telesales'}</Button></>}>
+      <Field label={canDie ? 'Reason' : 'Comment for Telesales'} required><textarea value={text} onChange={event => setText(event.target.value)} placeholder={canDie ? 'Why is the customer not going ahead?' : 'Why is Sales sending this lead back?'}/></Field>
     </Modal>
     <Modal open={reassignOpen} onOpenChange={setReassignOpen} title="Reassign journey" description="Open tasks and visits that haven't started move to the new owner."
       footer={<><Button variant="secondary" onClick={() => setReassignOpen(false)}>Cancel</Button><Button onClick={async () => { if (await run(() => salesService.reassign(lead.journeyId, owner, text, user), 'Journey reassigned')) { setReassignOpen(false); setText('') } }}>Reassign</Button></>}>

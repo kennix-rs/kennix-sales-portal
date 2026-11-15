@@ -1,12 +1,13 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { CalendarDays, ChevronDown, ClipboardList, Columns3, Home, ListTodo, LogOut, Menu, Search, Settings, Users, Wallet, X } from 'lucide-react'
+import { Bell, CalendarDays, ChevronDown, ClipboardList, Columns3, Home, ListTodo, LogOut, Menu, Search, Settings, Users, Wallet, X } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { Avatar, Badge, Button } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../contexts/DataContext'
-import { isOverdueTask, isOverdueVisit } from '../lib/rules'
-import { canManage, roleLabel } from '../lib/utils'
+import { alertsFor, isOverdueTask, isOverdueVisit } from '../lib/rules'
+import { canManage, formatDate, roleLabel } from '../lib/utils'
+import { salesService } from '../services/salesService'
 
 const primaryNav = [
   { to: '/home', label: 'Home', icon: Home },
@@ -19,11 +20,13 @@ const primaryNav = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
-  const { leads, state } = useData()
+  const { leads, state, users, run, refresh } = useData()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [search, setSearch] = useState('')
   if (!user) return null
+  const alerts = state ? alertsFor(state, user, users) : []
+  const unread = alerts.filter(alert => !alert.readBy.includes(user.id))
   const visible = new Set(leads.map(lead => lead.journeyId))
   // Same count as the Overdue tile: past-due tasks plus visits never checked in.
   const overdue = (state?.tasks.filter(task => visible.has(task.journeyId) && isOverdueTask(task)).length ?? 0)
@@ -58,6 +61,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu/></Button>
         <form className="global-search" onSubmit={submitSearch}><Search size={18}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search Journey ID, customer, mobile…" aria-label="Global search"/></form>
         <div className="top-actions">
+          {canManage(user.role) && <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild><Button variant="ghost" size="icon" className="relative" aria-label={`Stage alerts, ${unread.length} unread`}><Bell size={19}/>{unread.length > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{unread.length}</span>}</Button></DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="dropdown-content w-80 max-w-[calc(100vw-1.5rem)]" align="end" sideOffset={8}>
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                  <div><strong className="text-sm">Stage alerts</strong><p className="text-xs text-slate-500">{unread.length} unread · Meeting done, site visit done, interested, quotation, closed</p></div>
+                  {unread.length > 0 && <button type="button" className="shrink-0 whitespace-nowrap text-[11px] font-bold text-teal-700" onClick={() => void run(() => salesService.markAlertsRead(unread.map(alert => alert.id), user), 'Alerts marked read')}>Mark all read</button>}
+                </div>
+                <div className="max-h-96 overflow-auto">
+                  {alerts.slice(0, 12).map(alert => <DropdownMenu.Item key={alert.id} className="notification-item" onSelect={() => { if (!alert.readBy.includes(user.id)) void salesService.markAlertsRead([alert.id], user).then(refresh); navigate(`/leads/${alert.journeyId}`) }}>
+                    <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${alert.readBy.includes(user.id) ? 'bg-slate-200' : 'bg-teal-500'}`}/>
+                    <div><strong>{alert.customer} → {alert.stage === 'Under Negotiation' ? 'Quotation shared' : alert.stage}</strong><p>{alert.actor} · {formatDate(alert.at)}</p></div>
+                  </DropdownMenu.Item>)}
+                  {alerts.length === 0 && <p className="p-4 text-center text-xs text-slate-500">No alerts yet</p>}
+                </div>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger className="user-trigger"><Avatar name={user.name} size="sm"/><span className="user-meta"><strong>{user.name}</strong><small>{user.title}</small></span><ChevronDown size={15}/></DropdownMenu.Trigger>
             <DropdownMenu.Portal>

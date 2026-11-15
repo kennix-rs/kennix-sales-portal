@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createInitialState, previewUsers, TELESALES_SENT_JOURNEYS } from '../data/fixtures'
-import { allowanceFor, isNewLead, meetingFormMissing, siteVisitMissing, STAGES, visibleLeads } from '../lib/rules'
+import { alertsFor, allowanceFor, indicativeCost, isNewLead, meetingFormMissing, recentInProcessAttempts, siteVisitMissing, STAGES, visibleLeads } from '../lib/rules'
 import { LocalSalesService, SalesError } from '../services/salesService'
 import type { MeetingProfile, SalesLead, SiteVisitReport } from '../types'
 
@@ -12,7 +12,7 @@ const inFuture = (days: number, hour = 11) => new Date(Date.UTC(2026, 10, 16 + d
 const fullProfile: MeetingProfile = {
   customerType: 'Individual', groupKind: '', landStatus: 'Own Land', propertyType: 'Duplex Villa', plotRegistered: 'Yes',
   registrationStatus: '', govtApproval: 'Yes', budget: '₹4.2 Cr', paymentPlan: 'Self', nextAction: 'Site Visit',
-  plotSize: '3,600 sq ft', dimensions: '60 ft × 60 ft', approxBuiltArea: '5,000 sq ft', decisionMaker: 'Self',
+  plotSize: '3,600 sq ft', dimensions: '60 ft × 60 ft', approxBuiltArea: '5,000 sq ft', decisionMaker: 'Self', packageType: 'Ultra Luxury',
 }
 const fullReport: SiteVisitReport = {
   actualSiteVisited: 'Yes', roadAccess: 'Yes', roadFacingWidth: '60 ft', roadWidth: '40 ft',
@@ -52,15 +52,22 @@ describe('Sales demo data', () => {
     expect(state.claims.every(claim => journeys.has(claim.journeyId))).toBe(true)
   })
 
-  it('shows every pipeline stage, and done stages have their data', () => {
-    expect(new Set(state.leads.map(item => item.stage))).toEqual(new Set(STAGES))
+  it('shows every pipeline stage plus a journey sent back to Telesales, and done stages have their data', () => {
+    expect(new Set(state.leads.map(item => item.stage))).toEqual(new Set([...STAGES, 'Sales Rejected']))
+    expect(state.leads.find(entry => entry.journeyId === 'KX-2026-000233')).toMatchObject({ stage: 'Sales Rejected', returnedToTelesales: { attempts: 0 } })
     for (const item of state.leads.filter(entry => ['Meeting Done', 'SV Scheduled', 'SV Done', 'Interested', 'Under Negotiation', 'Closed'].includes(entry.stage))) {
       expect(meetingFormMissing(item)).toEqual([])
     }
     for (const item of state.leads.filter(entry => ['SV Done', 'Interested', 'Under Negotiation', 'Closed'].includes(entry.stage))) {
       expect(siteVisitMissing(item.siteVisit)).toEqual([])
     }
-    expect(state.leads.filter(entry => entry.stage === 'Closed').every(entry => entry.closing && entry.architecture?.quotation)).toBe(true)
+    expect(state.leads.filter(entry => entry.stage === 'Closed').every(entry => entry.closing && entry.architecture?.quotation && entry.architecture.shared)).toBe(true)
+  })
+
+  it('marks every first Sales meeting as fixed by Telesales, and Sales-fixed visits as Sales', () => {
+    for (const item of state.leads) {
+      for (const visit of item.visits) expect(visit.fixedBy).toBe(visit.kind === 'Sales Meeting' ? 'Telesales' : 'Sales')
+    }
   })
 
   it('raises a travel claim for every completed visit, priced by the allowance policy', () => {
@@ -83,6 +90,14 @@ describe('Sales rules', () => {
     expect(meetingFormMissing({ customer: base.customer, profile: sourcing })).toEqual([])
   })
 
+  it('asks for the type of package and prices it from the website rates', () => {
+    const base = createInitialState().leads.find(item => item.journeyId === 'KX-2026-000270')!
+    expect(meetingFormMissing({ customer: base.customer, profile: { ...fullProfile, packageType: '' } })).toContain('Type of package')
+    expect(indicativeCost('5,000 sq ft', 'Ultra Luxury')).toBe(1_25_00_000)
+    expect(indicativeCost('3,200 sq ft', 'Basic')).toBe(57_60_000)
+    expect(indicativeCost('', 'Luxury')).toBeNull()
+  })
+
   it('needs road widths only with road access, and always 2 photos', () => {
     expect(siteVisitMissing(fullReport)).toEqual([])
     expect(siteVisitMissing({ ...fullReport, roadAccess: 'No', roadFacingWidth: '', roadWidth: '' })).toEqual([])
@@ -100,6 +115,22 @@ describe('Sales rules', () => {
 })
 
 describe('Sales journey through the service', () => {
+  it('sends a journey back to Telesales on the 5th unanswered attempt within 3 days', async () => {
+    // Sameer Khan has 4 In Process attempts in the last 3 days (and an older one outside the window).
+    let current = await lead('KX-2026-000236')
+    expect(recentInProcessAttempts(current)).toBe(4)
+    await service.logCall('KX-2026-000236', { outcome: 'RNR', notes: 'Fifth try, still no answer' }, ishaan)
+    current = await lead('KX-2026-000236')
+    expect(current.stage).toBe('Sales Rejected')
+    expect(current.returnedToTelesales).toMatchObject({ attempts: 5, reason: 'Fifth try, still no answer', by: 'Ishaan Bhatia' })
+    await expect(service.logCall('KX-2026-000236', { outcome: 'Spoke to Customer', notes: 'Trying again' }, ishaan)).rejects.toThrow('sent back to Telesales')
+  })
+
+  it('puts Plan Postponed under In Process like the other unreachable outcomes', async () => {
+    await service.logCall('KX-2026-000270', { outcome: 'Plan Postponed', notes: 'On hold till after Diwali', nextCallAt: inFuture(5) }, ishaan)
+    expect(await lead('KX-2026-000270')).toMatchObject({ stage: 'In Process', inProcessReason: 'Plan Postponed' })
+  })
+
   it('moves to In Process on RNR and back once the meeting is confirmed', async () => {
     await expect(service.logCall('KX-2026-000270', { outcome: 'RNR', notes: 'No answer twice' }, ishaan)).rejects.toThrow('Choose the next call date and time')
     await service.logCall('KX-2026-000270', { outcome: 'RNR', notes: 'No answer twice', nextCallAt: inFuture(1) }, ishaan)
@@ -144,14 +175,21 @@ describe('Sales journey through the service', () => {
     expect((await lead(id)).stage).toBe('SV Done')
 
     await service.markInterested(id, 'Ar. Nikhil Bose', inFuture(10), ishaan)
-    await expect(service.recordEstimate(id, 1_00_00_000, 2_00_00_000, '', ishaan)).rejects.toThrow('wider than ±20%')
-    await service.recordEstimate(id, 4_00_00_000, 6_00_00_000, 'G+2 with basement', ishaan)
-    await service.shareQuotation(id, 'QT-000270', 5_10_00_000, ishaan)
-    expect((await lead(id)).stage).toBe('Under Negotiation')
-    await service.closeDeal(id, { tokenAmount: 5_00_000, paymentReference: 'UTR123', handoverCallAt: inFuture(14) }, ishaan)
+    await expect(service.shareQuotation(id, ishaan)).rejects.toThrow('not uploaded a quotation')
+    await expect(service.uploadQuotation(id, { number: 'QT-000270', amount: 5_10_00_000, fileName: '' }, ishaan)).rejects.toThrow('Attach the quotation file')
+    await service.uploadQuotation(id, { number: 'QT-000270', amount: 5_10_00_000, fileName: 'QT-000270.pdf' }, ishaan)
+    expect((await lead(id)).architecture?.quotation).toMatchObject({ uploadedBy: 'Ar. Nikhil Bose', fileName: 'QT-000270.pdf' })
+    await service.shareQuotation(id, ishaan)
+    current = await lead(id)
+    expect(current.stage).toBe('Under Negotiation')
+    expect(current.architecture?.shared).toMatchObject({ via: 'WhatsApp', by: 'Ishaan Bhatia' })
+    await service.closeDeal(id, { tokenAmount: 2_00_000, paymentReference: 'UTR123', handoverCallAt: inFuture(14) }, ishaan)
     current = await lead(id)
     expect(current.stage).toBe('Closed')
-    expect(current.closing).toMatchObject({ tokenAmount: 5_00_000, paymentReference: 'UTR123' })
+    expect(current.closing).toMatchObject({ tokenAmount: 2_00_000, paymentReference: 'UTR123' })
+    // Each key stage alerted the Team Lead and Manager.
+    const stages = (await service.getState()).alerts.filter(alert => alert.journeyId === id).map(alert => alert.stage)
+    expect(stages).toEqual(['Meeting Done', 'SV Done', 'Interested', 'Under Negotiation', 'Closed'])
     await expect(service.logCall(id, { outcome: 'Spoke to Customer', notes: 'Checking in' }, ishaan)).rejects.toThrow('read-only')
   })
 
@@ -160,12 +198,32 @@ describe('Sales journey through the service', () => {
     await expect(service.scheduleVisit('KX-2026-000244', 'Site Visit', inFuture(3), 'Zirakpur', ishaan)).rejects.toThrow('Land Sourcing has not identified land yet')
   })
 
-  it('marks a journey dead when the customer is not interested', async () => {
+  it('sends a not-interested customer back to Telesales before any meeting, and marks it dead after one', async () => {
+    // Varun Sehgal: no meeting yet.
+    await expect(service.markDead('KX-2026-000264', 'Not going ahead', ishaan)).rejects.toThrow('goes back to Telesales')
     await service.logCall('KX-2026-000264', { outcome: 'Not Interested', notes: 'Postponed plans by two years' }, ishaan)
-    const current: SalesLead = await lead('KX-2026-000264')
-    expect(current.stage).toBe('Dead')
-    expect(current.deadReason).toBe('Postponed plans by two years')
+    let current: SalesLead = await lead('KX-2026-000264')
+    expect(current.stage).toBe('Sales Rejected')
+    expect(current.returnedToTelesales).toMatchObject({ reason: 'Postponed plans by two years', attempts: 0 })
     expect(current.visits.every(visit => visit.status !== 'Scheduled')).toBe(true)
+    // Rohan Khanna: the meeting has happened.
+    await expect(service.returnToTelesales('KX-2026-000248', 'Customer changed plans', ishaan)).rejects.toThrow('mark the journey dead')
+    await service.logCall('KX-2026-000248', { outcome: 'Not Interested', notes: 'Bought a flat instead' }, ishaan)
+    current = await lead('KX-2026-000248')
+    expect(current).toMatchObject({ stage: 'Dead', deadReason: 'Bought a flat instead' })
+  })
+
+  it('shows stage alerts to Team Leads and Managers only, read per person', async () => {
+    const state = await service.getState()
+    expect(alertsFor(state, ishaan, previewUsers)).toEqual([])
+    const forManish = alertsFor(state, manish, previewUsers)
+    expect(forManish.length).toBeGreaterThan(0)
+    const unread = forManish.filter(alert => !alert.readBy.includes(manish.id))
+    expect(unread.length).toBeGreaterThan(0)
+    await service.markAlertsRead(unread.map(alert => alert.id), manish)
+    const after = await service.getState()
+    expect(alertsFor(after, manish, previewUsers).every(alert => alert.readBy.includes(manish.id))).toBe(true)
+    expect(alertsFor(after, rakesh, previewUsers).some(alert => !alert.readBy.includes(rakesh.id))).toBe(true)
   })
 
   it('lets only Team Leads and Managers reassign and approve claims, never their own', async () => {

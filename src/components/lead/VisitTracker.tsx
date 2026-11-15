@@ -29,27 +29,32 @@ export function VisitTracker({ lead, visit, readOnly }: { lead: SalesLead; visit
     setBusy(false)
   }
   const owner = users.find(item => item.id === visit.ownerId)?.name ?? visit.ownerId
+  // Voice notes: Start meeting → Arrived at client location → Meeting completed.
+  const site = visit.kind === 'Site Visit'
+  const labels = site
+    ? { start: 'Start site visit', arrive: 'Arrived at site', complete: 'Site visit completed' }
+    : { start: 'Start meeting', arrive: 'Arrived at client location', complete: 'Meeting completed' }
 
   return <div className="rounded-xl border border-slate-200 bg-white">
     <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{visit.kind}</strong>
+        <div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{visit.kind}</strong>{visit.fixedBy === 'Telesales' && <Badge tone="blue">T · fixed by Telesales</Badge>}
           <Badge tone={visit.status === 'Completed' ? 'green' : visit.status === 'Cancelled' ? 'slate' : visit.confirmedAt ? 'teal' : 'amber'}>{visit.status === 'Scheduled' ? (visit.confirmedAt ? 'Confirmed' : 'To reconfirm') : visit.status}</Badge>
         </div>
         <p className="mt-1 text-xs text-slate-600">{formatDate(visit.scheduledAt)} · {visit.place}</p>
         <p className="mt-0.5 text-[11px] text-slate-400">Executive: {owner}{visit.confirmedAt ? ` · reconfirmed ${formatDate(visit.confirmedAt)}` : ''}</p>
       </div>
       {canAct && <div className="flex flex-wrap gap-2">
-        {!visit.started && <Button size="sm" disabled={busy} onClick={() => act('start', 'Trip started; location recorded')}><Navigation size={14}/> Start trip</Button>}
-        {visit.started && !visit.arrived && <Button size="sm" disabled={busy} onClick={() => act('arrive', 'Arrival recorded')}><MapPin size={14}/> I’ve arrived</Button>}
-        {visit.arrived && <Button size="sm" disabled={busy} onClick={() => act('complete', 'Visit completed; travel claim raised')}><Flag size={14}/> Complete visit</Button>}
+        {!visit.started && <Button size="sm" disabled={busy} onClick={() => act('start', 'Started; location recorded')}><Navigation size={14}/> {labels.start}</Button>}
+        {visit.started && !visit.arrived && <Button size="sm" disabled={busy} onClick={() => act('arrive', 'Arrival recorded')}><MapPin size={14}/> {labels.arrive}</Button>}
+        {visit.arrived && <Button size="sm" disabled={busy} onClick={() => act('complete', 'Completed; travel claim raised')}><Flag size={14}/> {labels.complete}</Button>}
         {!visit.started && <Button size="sm" variant="ghost" onClick={() => setCancelOpen(true)}><XCircle size={14}/> Cancel</Button>}
       </div>}
     </div>
     <div className="grid gap-2 p-4 sm:grid-cols-3">
-      <Stamp label="Trip started" stamp={visit.started}/>
-      <Stamp label="Arrived at location" stamp={visit.arrived}/>
-      <Stamp label="Visit completed" stamp={visit.completed}/>
+      <Stamp label={site ? 'Started for the site' : 'Started for the meeting'} stamp={visit.started}/>
+      <Stamp label={labels.arrive} stamp={visit.arrived}/>
+      <Stamp label={labels.complete} stamp={visit.completed}/>
     </div>
     {!isMine && visit.status === 'Scheduled' && !readOnly && <p className="px-4 pb-3 text-[11px] text-slate-500">Only {owner} can check in to this visit.</p>}
     {claim && <div className="mx-4 mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs">
