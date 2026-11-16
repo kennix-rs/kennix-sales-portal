@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import App from '../App'
@@ -39,6 +39,20 @@ describe('Sales portal', () => {
     // Own-land journeys and other executives' journeys are not listed.
     expect(screen.queryByText('Arnav Chopra')).not.toBeInTheDocument()
     expect(screen.queryByText('Deepak Yadav')).not.toBeInTheDocument()
+  })
+
+  it('goes back from the leads list to the page it was opened from', async () => {
+    renderAt('/home', 's-ishaan')
+    fireEvent.click((await screen.findByText('Land sourcing leads')).closest('a')!)
+    expect(await screen.findByRole('heading', { name: 'Leads' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'Your sales day' })).toBeInTheDocument()
+  })
+
+  it('goes Home from a leads list opened directly', async () => {
+    renderAt('/leads', 's-ishaan')
+    fireEvent.click(await screen.findByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'Your sales day' })).toBeInTheDocument()
   })
 
   it('opens a journey on the meeting form with the identified land in the overview', async () => {

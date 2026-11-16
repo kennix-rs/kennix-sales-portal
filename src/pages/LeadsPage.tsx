@@ -1,5 +1,5 @@
-import { ChevronRight, Search } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, ChevronRight, Search } from 'lucide-react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { PriorityBadge, QueueBadge, StageBadge } from '../components/sales'
 import { Card, EmptyState, PageHeader } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
@@ -21,6 +21,10 @@ export function LeadsPage() {
   const { user } = useAuth()
   const { leads, users } = useData()
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
+  const location = useLocation()
+  // Back to the page you came from (a Home tile, the pipeline…); Home when the list was opened directly.
+  const goBack = () => (location.key === 'default' ? navigate('/home') : navigate(-1))
   const view = VIEWS.find(item => item.key === params.get('view')) ?? VIEWS[0]
   const stage = (STAGES as string[]).includes(params.get('stage') ?? '') ? params.get('stage') as SalesStage : 'All'
   const owner = params.get('owner') ?? 'All'
@@ -41,6 +45,7 @@ export function LeadsPage() {
   const team = users.filter(item => leads.some(lead => lead.ownerId === item.id))
 
   return <>
+    <button type="button" onClick={goBack} className="mb-4 inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-800"><ArrowLeft size={14}/> Back</button>
     <PageHeader eyebrow="From Telesales" title="Leads" description="Journeys Telesales qualified with a Sales meeting fixed. Land sourcing leads also went to the Land Sourcing team, which shares the land once identified."/>
     <div className="tabs-list mb-4" role="tablist" aria-label="Lead views">
       {VIEWS.map(item => <button key={item.key} role="tab" aria-selected={item.key === view.key} data-state={item.key === view.key ? 'active' : 'inactive'} className="tab-trigger" onClick={() => set('view', item.key)}>
@@ -49,7 +54,7 @@ export function LeadsPage() {
     </div>
     <Card className="mb-4 p-4">
       <div className={cn('grid gap-3', canManage(user!.role) ? 'md:grid-cols-[1fr_220px_220px]' : 'md:grid-cols-[1fr_220px]')}>
-        <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/><input className="input pl-9" value={search} onChange={event => set('search', event.target.value)} placeholder="Search customer, Journey ID, mobile, city…" aria-label="Search leads"/></div>
+        <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/><input className="input pl-9!" value={search} onChange={event => set('search', event.target.value)} placeholder="Search customer, Journey ID, mobile, city…" aria-label="Search leads"/></div>
         <select className="input" aria-label="Stage" value={stage} onChange={event => set('stage', event.target.value)}><option value="All">All stages</option>{STAGES.map(item => <option key={item}>{item}</option>)}</select>
         {canManage(user!.role) && <select className="input" aria-label="Owner" value={owner} onChange={event => set('owner', event.target.value)}><option value="All">Everyone</option>{team.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
       </div>
